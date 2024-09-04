@@ -1,0 +1,413 @@
+---
+title: "Reference grid plots"
+author: "F. Delogu"
+date: "as.Date(now())"
+output:
+  html_document:
+---
+
+# Setup
+
+## Load libraries
+```{r load libraries, message=F, warning=F}
+library(tidyverse)
+library(openxlsx)
+library(rnaturalearth)
+library(sf)
+library(gridExtra)
+library(terra)
+library(maps)
+library(wesanderson)
+
+options(width = 500)
+```
+
+## Set the environment
+```{r setup}
+options(stringsAsFactors = F, gsubfn.engine = "R")
+
+Sys.setenv("LANGUAGE"="En")
+
+wd <- getwd()
+
+data.path <- paste0(wd, '/../../data')
+results.path <- paste0(wd, '/../../results')
+```
+
+## Load data
+
+Downlaod full folders for the 1km and 10km reference grids of Denmark from:
+- 1km: https://sdi.eea.europa.eu/catalogue/srv/eng/catalog.search#/metadata/4540ed52-66ff-468b-b832-b903872e3f13f
+- 10km: https://sdi.eea.europa.eu/catalogue/srv/eng/catalog.search#/metadata/4049bf5d-134c-4d02-b33a-54d7058cd67bf
+
+```{r load data}
+linked.samples <- read.csv2(paste0(data.path, "/2024-02-07_linked-samples.csv"))
+
+mfd_db <- readxl::read_xlsx(paste0(data.path, "/2024-02-13_mfd_db.xlsx"))
+
+FL16S <- read_csv(paste0(data.path, "/mfd_analyse_metadata.csv")) %>%
+  filter(startsWith(fieldsample_barcode, "MFD"),
+         fieldsample_barcode %in% mfd_db$fieldsample_barcode) %>%
+  left_join((mfd_db %>%
+               mutate(mfd_sampletype_update = mfd_sampletype,
+                      mfd_areatype_update = mfd_areatype,
+                      mfd_hab1_update = mfd_hab1) %>%
+               select(fieldsample_barcode, latitude, longitude, mfd_sampletype_update, mfd_areatype_update, mfd_hab1_update)),
+            by = "fieldsample_barcode") %>%
+  mutate(mfd_sampletype = if_else(!is.na(mfd_sampletype_update), mfd_sampletype_update, mfd_sampletype),
+         mfd_areatype = if_else(!is.na(mfd_areatype_update), mfd_areatype_update, mfd_areatype),
+         mfd_hab1 = if_else(!is.na(mfd_hab1_update), mfd_hab1_update, mfd_hab1)) %>%
+  select(-mfd_sampletype_update, -mfd_areatype_update, -mfd_hab1_update)
+
+mfd_db <- mfd_db  %>%
+  filter(fieldsample_barcode %in% linked.samples$fieldsample_barcode)
+
+dk.1km <- vect(paste0(data.path, "/eea_v_3035_1_km_eea-ref-grid-dk_p_2013_v02_r00/dk_1km.shp")) %>%
+  project("+proj=longlat +datum=WGS84")
+dk.10km <- vect(paste0(data.path, "/eea_v_3035_10_km_eea-ref-grid-dk_p_2013_v02_r00/dk_10km.shp")) %>%
+  project("+proj=longlat +datum=WGS84")
+```
+
+## Reformat data
+```{r Reformat data}
+sampling.locations <- vect(data.frame(lon = mfd_db$longitude,
+                                      lat = mfd_db$latitude,
+                                      fieldsample_barcode=mfd_db$fieldsample_barcode),
+                           geom = c("lon", "lat"))
+
+ref.locations <- vect(data.frame(lon = FL16S$longitude,
+                                      lat = FL16S$latitude,
+                                      fieldsample_barcode=FL16S$fieldsample_barcode),
+                           geom = c("lon", "lat"))
+
+intersect.1km <- intersect(sampling.locations, dk.1km) %>%
+  as.data.frame() %>%
+  mutate(cell.1km = CELLCODE) %>%
+  select(fieldsample_barcode, cell.1km)
+
+intersect.10km <- intersect(sampling.locations, dk.10km) %>%
+  as.data.frame() %>%
+  mutate(cell.10km = CELLCODE) %>%
+  select(fieldsample_barcode, cell.10km)
+
+mfd_db <- mfd_db %>%
+  left_join(intersect.1km,
+            by = "fieldsample_barcode") %>%
+  left_join(intersect.10km,
+            by = "fieldsample_barcode")
+```
+
+## Write mfd metadata with cells
+```{r Write mfd metadata with cells}
+mfd_db %>%
+  write.xlsx(file = paste0(results.path, "/", Sys.Date(), "_mfd_db_grid.xlsx"))
+```
+
+## Ontology palettes
+```{r Ontology palettes}
+sediment.palette <- colorRampPalette(c(wes_palette("IsleofDogs2")[3], wes_palette("FantasticFox1")[1]))
+plot(rep(1, 4), col = sediment.palette(4), pch = 19, cex = 3)
+
+soil.palette <- colorRampPalette(c(wes_palette("AsteroidCity1")[4], wes_palette("AsteroidCity1")[1]))
+plot(rep(1, 5), col = soil.palette(5), pch = 19, cex = 3)
+
+water.palette <- colorRampPalette(c(wes_palette("Darjeeling2")[2], wes_palette("Zissou1")[2]))
+plot(rep(1, 4), col = water.palette(4), pch = 19, cex = 3)
+```
+
+
+## Sampletype palette
+```{r Sampletype palette}
+sampleype.palette <- c(sediment.palette(1), soil.palette(1), water.palette(1))
+names(sampleype.palette) <- c("Sediment", "Soil", "Water")
+```
+
+## Cutout versions
+```{r Cutout maps of Dk}
+col_grid <- rgb(235, 235, 235, 50, maxColorValue = 255)
+
+world <- ne_countries(scale = 'large', returnclass = 'sf')
+
+MG.map.BH.10km <- ggplot(data = world) + 
+  geom_sf(fill = wes_palette("Darjeeling2")[1]) +
+  geom_point(data = (mfd_db), aes(x = longitude, y = latitude, color = mfd_sampletype), 
+             size = .75, alpha = 1, shape = 16) +
+  geom_polygon(data = as.data.frame(geom(as.polygons(dk.10km))),
+               aes(x = x, y = y, group = geom),
+               color = "black", fill=NA,
+               linewidth = 0.1) +
+  scale_color_manual(values = sampleype.palette) +
+  theme_minimal() + 
+  coord_sf(xlim = c(14, 16), ylim = c(54.5, 55.75), expand = FALSE) +
+  scale_y_continuous(breaks = c(54.5, 55, 55.5)) +
+  scale_x_continuous(breaks = c(14, 15, 16)) +
+  labs(x = "", y = "") +
+  annotate(geom = "text", x = 14.75, y = 54.6, label = "Bornholm") +
+  theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        panel.grid = element_line(color = col_grid),
+        legend.position = 'none')
+
+MG.map.DK.10km <- ggplot(data = world) + 
+  geom_sf(fill = wes_palette("Darjeeling2")[1]) +
+  geom_point(data = (mfd_db), aes(x = longitude, y = latitude, color = mfd_sampletype), 
+             size = .75, alpha = 1, shape = 16) +
+  geom_polygon(data = as.data.frame(geom(as.polygons(dk.10km))),
+               aes(x = x, y = y, group = geom),
+               color = "black", fill=NA,
+               linewidth = 0.1) +
+  scale_color_manual(values = sampleype.palette) +
+  theme_minimal() + 
+  coord_sf(xlim = c(7.5, 13.1), ylim = c(54.5, 58), expand = FALSE) + 
+  labs(x = "Longitude", y = "Latitude", title = "Metagenome") + 
+  theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        legend.key.size = unit(.25, "cm"),
+        legend.spacing.x = unit(0.3, "cm"),
+        legend.margin = margin(0.25, 0.5, 0.25, 0, unit = "cm"),
+        legend.position = c(0.275, 0.95),
+        legend.direction = "horizontal",
+        legend.title = element_blank(),
+        panel.grid = element_line(color = col_grid)) +
+  annotation_custom(ggplotGrob(MG.map.BH.10km), xmin = 10.5, ymin = 56.7, xmax = 13.0, ymax = 58)
+  
+MG.map.BH.1km <- ggplot(data = world) + 
+  geom_sf(fill = wes_palette("Darjeeling2")[1]) +
+  geom_point(data = (mfd_db), aes(x = longitude, y = latitude, color = mfd_sampletype), 
+             size = .75, alpha = 1, shape = 16) +
+  geom_polygon(data = as.data.frame(geom(as.polygons(dk.1km))),
+               aes(x = x, y = y, group = geom),
+               color = "black", fill=NA,
+               linewidth = 0.1) +
+  scale_color_manual(values = sampleype.palette) +
+  theme_minimal() + 
+  coord_sf(xlim = c(14, 16), ylim = c(54.5, 55.75), expand = FALSE) +
+  scale_y_continuous(breaks = c(54.5, 55, 55.5)) +
+  scale_x_continuous(breaks = c(14, 15, 16)) +
+  labs(x = "", y = "") +
+  annotate(geom = "text", x = 14.75, y = 54.6, label = "Bornholm") +
+  theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        panel.grid = element_line(color = col_grid),
+        legend.position = 'none')
+
+MG.map.DK.1km <- ggplot(data = world) + 
+  geom_sf(fill = wes_palette("Darjeeling2")[1]) +
+  geom_point(data = (mfd_db), aes(x = longitude, y = latitude, color = mfd_sampletype), 
+             size = .75, alpha = 1, shape = 16) +
+  geom_polygon(data = as.data.frame(geom(as.polygons(dk.1km))),
+               aes(x = x, y = y, group = geom),
+               color = "black", fill=NA,
+               linewidth = 0.1) +
+  scale_color_manual(values = sampleype.palette) +
+  theme_minimal() + 
+  coord_sf(xlim = c(7.5, 13.1), ylim = c(54.5, 58), expand = FALSE) + 
+  labs(x = "Longitude", y = "Latitude", title = "Metagenome") + 
+  theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        legend.key.size = unit(.25, "cm"),
+        legend.spacing.x = unit(0.3, "cm"),
+        legend.margin = margin(0.25, 0.5, 0.25, 0, unit = "cm"),
+        legend.position = c(0.275, 0.95),
+        legend.direction = "horizontal",
+        legend.title = element_blank(),
+        panel.grid = element_line(color = col_grid)) +
+  annotation_custom(ggplotGrob(MG.map.BH.1km), xmin = 10.5, ymin = 56.7, xmax = 13.0, ymax = 58)
+
+cutout.maps <- grid.arrange(MG.map.DK.10km, MG.map.DK.1km, nrow = 1)
+cutout.maps
+
+ggsave(cutout.maps, filename = paste0(results.path, "/cutout_maps_grid.png"), width = 12, height = 6)
+```
+## Color
+```{r color}
+library(wesanderson)
+
+## Ontology palettes
+sediment.palette <- colorRampPalette(c(wes_palette("IsleofDogs2")[3], wes_palette("FantasticFox1")[1]))
+plot(rep(1, 5), col = sediment.palette(5), pch = 19, cex = 3)
+soil.palette <- colorRampPalette(c(wes_palette("AsteroidCity1")[4], wes_palette("AsteroidCity1")[1]))
+plot(rep(1, 9), col = soil.palette(9), pch = 19, cex = 3)
+water.palette <- colorRampPalette(c(wes_palette("Darjeeling2")[2], wes_palette("Zissou1")[2]))
+plot(rep(1, 4), col = water.palette(4), pch = 19, cex = 3)
+
+## Sampletype palette
+
+sampletype.palette <- c(soil.palette(1), sediment.palette(1), water.palette(1))
+names(sampletype.palette) <- c("Soil", "Sediment", "Water")
+
+sampletype.palette
+plot(rep(1, 3), col = sampletype.palette, pch = 19, cex = 3)
+
+
+mfdo1 <- mfd_db %>%
+  select(mfd_sampletype:mfd_hab1) %>%
+  filter(!is.na(mfd_hab1)) %>%
+  mutate(across(mfd_hab1, ~str_replace(., "Sclerophyllous scrub", "Temperate heath and scrub"))) %>%
+  distinct() %>%
+  mutate(complex = str_c(mfd_sampletype, mfd_areatype, mfd_hab1, sep = ", ")) %>%
+  filter(!complex %in% c("Water, Subterranean, Freshwater",
+                         "Water, Urban, Sandfilter",
+                         "Soil, Urban, Other",
+                         "Sediment, Urban, Other",
+                         "Soil, Urban, Roadside",
+                         "Soil, Subterranean, Urban")) %>%
+  mutate(across(mfd_sampletype, ~factor(., levels = c("Soil", "Sediment", "Water"))),
+         across(mfd_areatype, ~factor(., levels = c("Natural", "Subterranean", "Agriculture", "Urban")))) %>%
+  arrange(mfd_sampletype, mfd_areatype, mfd_hab1)
+
+mfdo1.palette <- c(soil.palette(9), sediment.palette(5), water.palette(4))
+names(mfdo1.palette) <- mfdo1 %>% pull(complex)
+
+mfdo1.palette
+plot(rep(1, 18), col = mfdo1.palette, pch = 19, cex = 3)
+```
+
+## Plot function
+```{r Plot function}
+f.pixel_plot <- function(x, y, lab){
+  print(lab)
+  print(y)
+  
+  full.cells.cycle <- full.cells.10mk[is.related(full.cells.10mk,
+                                         terra::subset(sampling.locations,
+                                                       sampling.locations$fieldsample_barcode%in%x),
+                                         "intersects")]
+  
+  
+  if(identical(y, character(0))){
+    ref.cells.cycle <- out.poly
+  } else {
+    ref.cells.cycle <- ref.cells.10mk[is.related(ref.cells.10mk,
+                                         terra::subset(ref.locations,
+                                                       ref.locations$fieldsample_barcode%in%y),
+                                         "intersects")]
+  }
+  
+  ref.points.cycle <- centroids(ref.cells.cycle)
+  
+  print(full.cells.cycle)
+  print(ref.points.cycle)
+  
+  MG.map.BH.10km <- ggplot(data = world) + 
+    geom_sf(fill = wes_palette("Darjeeling2")[1]) +
+
+    geom_polygon(data = as.data.frame(geom(as.polygons(dk.10km))),
+                 aes(x = x, y = y, group = geom),
+                 color = "black", fill=NA,
+                 linewidth = 0.1) +
+    geom_polygon(data = as.data.frame(geom(full.cells.cycle)),
+                 aes(x = x, y = y, group = geom),
+                 color = "black", fill = mfdo1.palette[lab],
+                 linewidth = 0.1, alpha = 0.6) +
+    geom_point(data = as.data.frame(geom(ref.points.cycle)),
+               aes(x = x, y = y, group = geom),
+               color =  "black", fill = mfdo1.palette[lab],
+               size = 0.75, shape = 21) +
+    scale_color_manual(values = sampleype.palette) +
+    theme_minimal() + 
+    coord_sf(xlim = c(14, 16), ylim = c(54.5, 55.75), expand = FALSE) +
+    scale_y_continuous(breaks = c(54.5, 55, 55.5)) +
+    scale_x_continuous(breaks = c(14, 15, 16)) +
+    labs(x = "", y = "") +
+    theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        panel.grid = element_line(color = col_grid),
+          legend.position = 'none',
+          axis.title=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank())
+  
+  MG.map.DK.10km <- ggplot(data = world) + 
+    geom_sf(fill = wes_palette("Darjeeling2")[1]) +
+    geom_polygon(data = as.data.frame(geom(as.polygons(dk.10km))),
+                 aes(x = x, y = y, group = geom),
+                 color = "black", fill=NA,
+                 linewidth = 0.1) +
+    geom_polygon(data = as.data.frame(geom(full.cells.cycle)),
+                 aes(x = x, y = y, group = geom),
+                 color = "black", fill=mfdo1.palette[lab],
+                 linewidth = 0.1, alpha = 0.6) +
+    geom_point(data = as.data.frame(geom(ref.points.cycle)),
+               aes(x = x, y = y, group = geom),
+               color =  "black", fill = mfdo1.palette[lab],
+               size = 0.75, shape = 21) +
+    scale_color_manual(values = sampleype.palette) +
+    theme_minimal() + 
+    coord_sf(xlim = c(7.5, 13.1), ylim = c(54.5, 58), expand = FALSE) + 
+    labs(x = "", y = "", title = lab) +
+    theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        panel.grid = element_line(color = col_grid),
+          legend.position = 0,
+          axis.title=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank(),
+        plot.title = element_text(size=8)) +
+    annotation_custom(ggplotGrob(MG.map.BH.10km), xmin = 10.75, ymin = 56.7, xmax = 13.25, ymax = 58)
+  return(ggplotGrob(MG.map.DK.10km))
+}
+
+f.slice <- function(df, df.ref, lab){
+  x <- df %>% filter(TO.MFDO1 == lab) %>% pull(fieldsample_barcode)
+  y <- df.ref %>% filter(TO.MFDO1 == lab) %>% pull(fieldsample_barcode)
+  plot.to.return <- f.pixel_plot(x, y, lab)
+}
+```
+
+## Plot function
+```{r Plot function}
+#rev.intersect.10km <- intersect(dk.10km, sampling.locations)
+full.cells.10mk <- dk.10km[is.related(dk.10km, sampling.locations, "intersects")]
+ref.cells.10mk <- dk.10km[is.related(dk.10km, ref.locations, "intersects")]
+
+to.slice <- mfd_db %>%
+  filter(!is.na(mfd_hab1),
+         coords_reliable!="No") %>%
+  mutate(TO.MFDO1 = paste0(mfd_sampletype, ", ", mfd_areatype, ", ", mfd_hab1),
+         TO.MFDO1 = if_else(TO.MFDO1%in%c("Soil, Natural, Sclerophyllous scrub",
+                                          "Soil, Natural, Temperate heath and scrub"),
+                            "Soil, Natural, Temperate heath and scrub",
+                            TO.MFDO1)) %>%
+  filter(!TO.MFDO1 %in% c("Water, Subterranean, Freshwater",
+                          "Water, Urban, Sandfilter",
+                          "Soil, Urban, Other",
+                         "Sediment, Urban, Other",
+                         "Soil, Urban, Roadside",
+                         "Soil, Subterranean, Urban")) %>%
+  mutate(across(mfd_sampletype, ~factor(., levels = c("Soil", "Sediment", "Water"))),
+         across(mfd_areatype, ~factor(., levels = c("Natural", "Subterranean", "Agriculture", "Urban")))) %>%
+  arrange(mfd_sampletype, mfd_areatype, mfd_hab1) %>%
+  select(fieldsample_barcode, TO.MFDO1)
+
+to.slice.FL16 <- FL16S %>%
+  mutate(TO.MFDO1 = paste0(mfd_sampletype, ", ", mfd_areatype, ", ", mfd_hab1),
+         TO.MFDO1 = if_else(TO.MFDO1%in%c("Soil, Natural, Sclerophyllous scrub",
+                                          "Soil, Natural, Temperate heath and scrub"),
+                            "Soil, Natural, Temperate heath and scrub",
+                            TO.MFDO1)) %>%
+  filter(!TO.MFDO1 %in% c("Water, Subterranean, Freshwater",
+                          "Water, Urban, Sandfilter",
+                          "Soil, Urban, Other",
+                         "Sediment, Urban, Other",
+                         "Soil, Urban, Roadside",
+                         "Soil, Subterranean, Urban")) %>%
+  mutate(across(mfd_sampletype, ~factor(., levels = c("Soil", "Sediment", "Water"))),
+         across(mfd_areatype, ~factor(., levels = c("Natural", "Subterranean", "Agriculture", "Urban")))) %>%
+  arrange(mfd_sampletype, mfd_areatype, mfd_hab1) %>%
+  select(fieldsample_barcode, TO.MFDO1)
+
+out.poly <- - rbind(cbind(object=1,
+                          part=1,
+                          rbind(c(-180,-20), c(-140,55), c(10, 0), c(-140,-60)),
+                          hole=0)) %>%
+  vect("polygons")
+
+list.plots <- lapply(unique(to.slice$TO.MFDO1), function(x) f.slice(df = to.slice, df.ref = to.slice.FL16, lab = x))
+
+combined.plots <- grid.arrange(grobs=list.plots, ncol = 6)
+
+ggsave(combined.plots, filename = paste0(results.path, "/sampling_pixels_10km_v2.png"), width = 16, height = 9, dpi = "retina")
+ggsave(combined.plots, filename = paste0(results.path, "/sampling_pixels_10km_v2.svg"), width = 16, height = 9, dpi = "retina")
+```
+

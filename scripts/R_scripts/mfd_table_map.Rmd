@@ -1,0 +1,192 @@
+---
+title: "SEGES grid check"
+author: "F. Delogu"
+date: "as.Date(now())"
+output:
+  html_document:
+---
+
+# Setup
+
+## Load libraries
+```{r load libraries, message=F, warning=F}
+library(tidyverse)
+library(openxlsx)
+library(knitr)
+library(maps)
+library(gridExtra)
+library(rnaturalearth)
+library(ggspatial)
+library(sf)
+library(wesanderson)
+library(kableExtra)
+library(webshot2)
+
+options(width = 500)
+```
+
+## Set the environment
+```{r setup}
+options(stringsAsFactors = F, gsubfn.engine = "R")
+
+Sys.setenv("LANGUAGE"="En")
+
+wd <- getwd()
+
+data.path <- paste0(wd, '/../../data')
+results.path <- paste0(wd, '/../../results')
+```
+
+## Load data
+```{r load data}
+linked.samples <- read.csv2(paste0(data.path, "/2024-02-07_linked-samples.csv"))
+mfd_db <- readxl::read_xlsx(paste0(data.path, "/2024-02-13_mfd_db.xlsx")) %>%
+  filter(coords_reliable!="No") %>%
+  filter(fieldsample_barcode %in% linked.samples$fieldsample_barcode)
+FL16S <- read_csv(paste0(data.path, "/2024-01-25_OTU_minimal_metadata.csv")) %>% # OLD mfd_analyse_metadata.csv
+
+  filter(startsWith(fieldsample_barcode, "MFD"))
+sampling.df <- data.table::fread(paste0(data.path, "/sampling_table.csv"))
+```
+
+## Print sampling table
+```{r sampling table}
+table.plot <- sampling.df %>%
+  column_to_rownames(var="Data source") %>%
+  kbl(align = c("r", "r", "r", "r", "r", "r", "r"), format = "latex", booktabs = T) %>%
+  row_spec(0, bold = T) %>%
+  add_header_above(c(" ", "Sample statistics" = 2, "Sample count per ontology level [N]" = 5), bold = T)
+table.plot
+save_kable(table.plot, file = paste0(results.path, "/sampling_table.pdf"), family="Times")
+```
+
+
+## Fetch extra data
+```{r Fetch extra data}
+world <- ne_countries(scale = 'large', returnclass = 'sf')
+```
+
+
+## Reformat data
+```{r Reformat data}
+mfd_db <- rbind((mfd_db %>%
+                   select(fieldsample_barcode, mfd_sampletype, longitude, latitude, sampling_date) %>%
+                   mutate(Set = "Metagenome")),
+                (left_join((FL16S %>%
+                              select(fieldsample_barcode, project)),
+                           mfd_db,
+                           by = "fieldsample_barcode") %>%
+                   select(fieldsample_barcode, mfd_sampletype, longitude, latitude, sampling_date) %>%
+                   mutate(Set = "Full Length 16S"))) %>%
+  filter(!is.na(mfd_sampletype))
+```
+
+## Ontology palettes
+```{r Ontology palettes}
+sediment.palette <- colorRampPalette(c(wes_palette("IsleofDogs2")[3], wes_palette("FantasticFox1")[1]))
+plot(rep(1, 4), col = sediment.palette(4), pch = 19, cex = 3)
+
+soil.palette <- colorRampPalette(c(wes_palette("AsteroidCity1")[4], wes_palette("AsteroidCity1")[1]))
+plot(rep(1, 5), col = soil.palette(5), pch = 19, cex = 3)
+
+water.palette <- colorRampPalette(c(wes_palette("Darjeeling2")[2], wes_palette("Zissou1")[2]))
+plot(rep(1, 4), col = water.palette(4), pch = 19, cex = 3)
+```
+
+## Sampletype palette
+```{r Sampletype palette}
+sampleype.palette <- c(sediment.palette(1), soil.palette(1), water.palette(1))
+names(sampleype.palette) <- c("Sediment", "Soil", "Water")
+```
+
+## Cutout versions
+```{r Cutout maps of Dk}
+col_grid <- rgb(235, 235, 235, 50, maxColorValue = 255)
+
+MG.map.BH <- ggplot(data = world) + 
+  geom_sf(fill = wes_palette("Darjeeling2")[1]) + 
+  geom_point(data = (mfd_db %>% filter(Set == "Metagenome")), aes(x = longitude, y = latitude, color = mfd_sampletype), 
+             size = 1.5, alpha = 1, shape = 16) +
+  scale_color_manual(values = sampleype.palette) +
+  theme_minimal() + 
+  coord_sf(xlim = c(14, 16), ylim = c(54.5, 55.75), expand = FALSE) +
+  scale_y_continuous(breaks = c(54.5, 55, 55.5)) +
+  scale_x_continuous(breaks = c(14, 15, 16)) +
+  labs(x = "", y = "") +
+  annotate(geom = "text", x = 14.75, y = 54.6, label = "Bornholm") +
+  theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        panel.grid = element_line(color = col_grid),
+        legend.position = 'none',
+        text = element_text(family = "Times New Roman"))
+
+MG.map.DK <- ggplot(data = world) + 
+  geom_sf(fill = wes_palette("Darjeeling2")[1]) + 
+  geom_point(data = (mfd_db %>% filter(Set == "Metagenome")), aes(x = longitude, y = latitude, color = mfd_sampletype), 
+             size = 1.5, alpha = 1, shape = 16) +
+  scale_color_manual(values = sampleype.palette) +
+  theme_minimal() + 
+  coord_sf(xlim = c(7.5, 13.1), ylim = c(54.5, 58), expand = FALSE) + 
+  labs(x = "Longitude", y = "Latitude") + 
+  theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        legend.key.size = unit(.25, "cm"),
+        legend.spacing.x = unit(0.3, "cm"),
+        legend.margin = margin(0.25, 0.5, 0.25, 0, unit = "cm"),
+        legend.position = c(0.275, 0.95),
+        legend.direction = "horizontal",
+        legend.title = element_blank(),
+        panel.grid = element_line(color = col_grid),
+        text = element_text(family = "Times New Roman")) +
+  annotation_custom(ggplotGrob(MG.map.BH), xmin = 10.5, ymin = 56.7, xmax = 13.0, ymax = 58)
+  
+FL.map.BH <- ggplot(data = world) + 
+  geom_sf(fill = wes_palette("Darjeeling2")[1]) + 
+  geom_point(data = (mfd_db %>% filter(Set == "Full Length 16S")), aes(x = longitude, y = latitude, color = mfd_sampletype), 
+             size = 1.5, alpha = 1, shape = 16) +
+  scale_color_manual(values = sampleype.palette) +
+  theme_minimal() + 
+  coord_sf(xlim = c(14, 16), ylim = c(54.5, 55.75), expand = FALSE) +
+  scale_y_continuous(breaks = c(54.5, 55, 55.5)) +
+  scale_x_continuous(breaks = c(14, 15, 16)) +
+  labs(x = "", y = "") +
+  annotate(geom = "text", x = 14.75, y = 54.6, label = "Bornholm") +
+  theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        panel.grid = element_line(color = col_grid),
+        legend.position = 'none',
+        text = element_text(family = "Times New Roman"))
+
+FL.map.DK <- ggplot(data = world) + 
+  geom_sf(fill = wes_palette("Darjeeling2")[1]) + 
+  geom_point(data = (mfd_db %>% filter(Set == "Full Length 16S")), aes(x = longitude, y = latitude, color = mfd_sampletype), 
+             size = 1.5, alpha = 1, shape = 16) +
+  scale_color_manual(values = sampleype.palette) +
+  theme_minimal() +
+  coord_sf(xlim = c(7.5, 13.1), ylim = c(54.5, 58), expand = FALSE) + 
+  labs(x = "Longitude", y = "Latitude") + 
+  theme(panel.background = element_rect(fill = wes_palette("Darjeeling2")[4]),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5),
+        legend.key.size = unit(.25, "cm"),
+        legend.spacing.x = unit(0.3, "cm"),
+        legend.margin = margin(0.25, 0.5, 0.25, 0, unit = "cm"),
+        legend.position = c(0.275, 0.95),
+        legend.direction = "horizontal",
+        legend.title = element_blank(),
+        panel.grid = element_line(color = col_grid),
+        text = element_text(family = "Times New Roman")) +
+  annotation_custom(ggplotGrob(FL.map.BH), xmin = 10.5, ymin = 56.7, xmax = 13.0, ymax = 58)
+
+cutout.maps <- grid.arrange(MG.map.DK, FL.map.DK, nrow = 1)
+cutout.maps
+
+ggsave(cutout.maps, filename = paste0(results.path, "/cutout_maps.png"), width = 12, height = 6, dpi = "retina")
+ggsave(cutout.maps, filename = paste0(results.path, "/cutout_maps.svg"), width = 12, height = 6, dpi = "retina")
+ggsave(MG.map.DK, filename = paste0(results.path, "/MG_map.png"), width = 6, height = 6, dpi = "retina")
+ggsave(MG.map.DK, filename = paste0(results.path, "/MG_map.svg"), width = 6, height = 6, dpi = "retina")
+ggsave(FL.map.DK, filename = paste0(results.path, "/FL_map.png"), width = 6, height = 6, dpi = "retina")
+ggsave(FL.map.DK, filename = paste0(results.path, "/FL_map.svg"), width = 6, height = 6, dpi = "retina")
+```
+
+
+
