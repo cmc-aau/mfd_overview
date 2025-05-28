@@ -1,5 +1,5 @@
 ---
-title: ""
+title: "Sankey plot of samples in habitats"
 author: "F. Delogu"
 date: "as.Date(now())"
 output:
@@ -51,9 +51,9 @@ results.path <- paste0(wd, '/../../results')
 ```{r Load data}
 linked.samples <- read.csv2(paste0(data.path, "/2024-02-07_linked-samples.csv"))
 
-mfd_ontology <- read.xlsx(paste0(data.path, "/2023-12-21_mfd-habitat-ontology.xlsx"), sheet = 1)
+mfd_ontology <- read.xlsx(paste0(data.path, "/2025-02-11_mfd-habitat-ontology.xlsx"), sheet = 1)
 
-mfd_db <- read.xlsx(paste0(data.path, "/2024-02-13_mfd_db.xlsx"), sheet = 1)  %>%
+mfd_db <- read.xlsx(paste0(data.path, "/2025-04-14_mfd_db.xlsx"), sheet = 1)  %>%
   filter(fieldsample_barcode %in% linked.samples$fieldsample_barcode)
 source("MFD_colors.R")
 ```
@@ -79,14 +79,14 @@ dd_mfd_recast <- dd_mfd %>%
   rbind(c(lvl=0, value="root"))
 ```
 
-## Sampletype palette
+## Sankey palette
 ```{r Sampletype palette}
-sampletype.palette <- c(sediment.palette(4), soil.palette(5), water.palette(4))
-names(sampletype.palette) <- c("Sediment", "Sediment Natural", "Sediment Subterranean", "Sediment Urban",
-                               "Soil", "Soil Agriculture", "Soil Natural", "Soil Subterranean", "Soil Urban",
-                               "Water", "Water Natural", "Water Subterranean", "Water Urban")
+sankey.palette <- c(other.palette(2), sediment.palette(4), soil.palette(6), water.palette(4))
+names(sankey.palette) <- c("Other", "Other Urban",
+                           "Sediment", "Sediment Natural", "Sediment Subterranean", "Sediment Urban",
+                           "Soil", "Soil Agriculture", "Soil Agriculture (reclaimed lowland)", "Soil Natural", "Soil Urban", "Soil Subterranean",
+                           "Water", "Water Natural", "Water Subterranean", "Water Urban")
 ```
-
 
 ## Split db col function
 ```{r split col function}
@@ -100,6 +100,7 @@ split_and_keep_last <- function(string, delimiters) {
 ## MfD ontology sankey with samples
 ```{r MfD ontology sankey}
 sankey.df <- mfd_db %>%
+  arrange(desc(mfd_sampletype), desc(mfd_areatype), desc(mfd_hab1), desc(mfd_hab2), desc(mfd_hab3)) %>%
   mutate(EMPO.like = paste0(mfd_sampletype, " ", mfd_areatype),
          mfd_sampletype.b = paste0(paste0(mfd_sampletype), ";", mfd_sampletype),
          mfd_areatype.b = paste0(paste0(mfd_sampletype, ":", mfd_areatype), ";", EMPO.like),
@@ -139,11 +140,11 @@ gg_color_hue <- function(n) {
   hcl(h = hues, l = 65, c = 100)[1:n]
 }
 
-sankey.df %>% filter(x=="MFDO3") %>% distinct() %>% nrow() # Number of ontology leaves (almost = # of hab3)
+sankey.df %>% filter(x == "MFDO3") %>% distinct() %>% nrow() # Number of ontology leaves (almost = # of hab3)
 
 mfd.p.sankey.full <- sankey.df %>%
   group_by(node) %>%
-  mutate(n=n()) %>%
+  mutate(n = n()) %>%
   ungroup() %>%
   mutate(node.name = paste0(node.name, " (", n, ")")) %>%
   mutate(x = case_when(x == "sample type" ~ "Sample type",
@@ -153,7 +154,9 @@ mfd.p.sankey.full <- sankey.df %>%
                             next_x == "area type" ~ "Area type",
                             .default = next_x),
          x = factor(x , levels = c("Sample type", "Area type", "MFDO1", "MFDO2", "MFDO3")),
-         next_x = factor(next_x, levels = c("Sample type", "Area type", "MFDO1", "MFDO2", "MFDO3"))) %>%
+         next_x = factor(next_x, levels = c("Sample type", "Area type", "MFDO1", "MFDO2", "MFDO3")),
+         node = factor(node, levels = unique(node)),
+         next_node = factor(next_node, levels = unique(next_node))) %>%
   ggplot(aes(x = x, 
                next_x = next_x,
                node = node, 
@@ -161,9 +164,9 @@ mfd.p.sankey.full <- sankey.df %>%
                fill = as.factor(EMPO.like),
                label = node.name)) +
   geom_sankey(flow.alpha = 1, node.color = 1,
-              width = 0.05, linewidth = 0.5, space = 400) +
+              width = 0.05, linewidth = 0.5, space = 400, position = "identity") +
   geom_sankey_text(size = 5, color = "black", hjust = 0, position = position_nudge(x = .05), space = 400) +
-  scale_fill_manual(values = sampletype.palette) +
+  scale_fill_manual(values = sankey.palette) +
   theme_sankey(base_size = 16) +
   labs(x="Ontology level") +
   guides(fill = "none") +
@@ -172,16 +175,18 @@ mfd.p.sankey.full <- sankey.df %>%
         text = element_text(family = "Arial"),
         plot.margin=grid::unit(c(0,0,0,-8), "cm"))
 
-ggsave(mfd.p.sankey.full, filename = paste0(results.path, "/mfd_sankey_palette_labsALL_long.png"), width = 30, height = 40, dpi = "retina")
-ggsave(mfd.p.sankey.full, filename = paste0(results.path, "/mfd_sankey_palette_labsALL_long.svg"), width = 30, height = 40, dpi = "retina")
+ggsave(mfd.p.sankey.full, filename = paste0(results.path, "/mfd_sankey_palette_labsALL_long_revision.png"), width = 30, height = 40, dpi = "retina")
+ggsave(mfd.p.sankey.full, filename = paste0(results.path, "/mfd_sankey_palette_labsALL_long_revision.svg"), width = 30, height = 40, dpi = "retina")
+ggsave(mfd.p.sankey.full, filename = paste0(results.path, "/mfd_sankey_palette_labsALL_long_revision.jpg"), width = 30, height = 40, dpi = "retina")
 ```
 
 ## MfD ontology sankey with samples small
 ```{r MfD ontology sankey small}
 sankey.df <- mfd_db %>%
+  arrange(desc(mfd_sampletype), desc(mfd_areatype), desc(mfd_hab1), desc(mfd_hab2), desc(mfd_hab3)) %>%
   group_by(mfd_sampletype, mfd_areatype, mfd_hab1) %>%
-  mutate(n=n()) %>%
-  filter(n>=20, !is.na(mfd_hab1)) %>%
+  mutate(n = n()) %>%
+  filter(n >= 20, !is.na(mfd_hab1)) %>%
   ungroup() %>%
   mutate(EMPO.like = paste0(mfd_sampletype, " ", mfd_areatype),
          mfd_sampletype.b = paste0(paste0(mfd_sampletype), ";", mfd_sampletype),
@@ -237,7 +242,9 @@ mfd.p.sankey <- sankey.df %>%
                             next_x == "area type" ~ "Area type",
                             .default = next_x),
          x = factor(x , levels = c("Sample type", "Area type", "MFDO1", "MFDO2")),
-         next_x = factor(next_x, levels = c("Sample type", "Area type", "MFDO1", "MFDO2"))) %>%
+         next_x = factor(next_x, levels = c("Sample type", "Area type", "MFDO1", "MFDO2")),
+         node = factor(node, levels = unique(node)),
+         next_node = factor(next_node, levels = unique(next_node))) %>%
   ggplot(aes(x = x, 
                next_x = next_x,
                node = node, 
@@ -247,7 +254,7 @@ mfd.p.sankey <- sankey.df %>%
   geom_sankey(flow.alpha = 1, node.color = 1,
               width = 0.05, linewidth = 0.5, space = 400) +
   geom_sankey_text(size = 5, color = "black", hjust = 0, position = position_nudge(x = .05), space = 400) +
-  scale_fill_manual(values = c(sampletype.palette, areatype.palette, mfdo1.palette)) +
+  scale_fill_manual(values = sankey.palette) +
   theme_sankey(base_size = 16) +
   labs(x="Ontology level") +
   guides(fill = "none") +
@@ -258,7 +265,7 @@ mfd.p.sankey <- sankey.df %>%
 
 mfd.p.sankey
 
-ggsave(mfd.p.sankey, filename = paste0(results.path, "/mfd_sankey_palette_labs3.png"), width = 17, height = 12, dpi = "retina")
-ggsave(mfd.p.sankey, filename = paste0(results.path, "/mfd_sankey_palette_labs3.svg"), width = 17, height = 12, dpi = "retina")
+ggsave(mfd.p.sankey, filename = paste0(results.path, "/mfd_sankey_palette_labs3_revision.png"), width = 17, height = 12, dpi = "retina")
+ggsave(mfd.p.sankey, filename = paste0(results.path, "/mfd_sankey_palette_labs3_revision.svg"), width = 17, height = 12, dpi = "retina")
 ```
 

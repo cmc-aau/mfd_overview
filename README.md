@@ -3,6 +3,8 @@ This repo generates statistics and plots to summarize the [Microflora Danica](ht
 
 Please download the input data from the [Zenodo repo](https://zenodo.org/records/12605769) and the [metadata repo](https://github.com/cmc-aau/mfd_metadata) in the `/data` folder and amend the `/scripts/R_scripts/<NAME>.Rmd` files under the "Load data" section if required by new releases of the data. The files will generally have the form of <RELEASE_DATE>_<NAME>_.<EXTENSION> and "RELEASE_DATE" will have to match the one from the download.
 
+Please download the required EEA geospatial maps for [1km reference grid](https://sdi.eea.europa.eu/catalogue/srv/api/records/4540ed52-66ff-468b-b832-b903872e3f13) and [10km reference grid](https://sdi.eea.europa.eu/catalogue/srv/api/records/4049bf5d-134c-4d02-b33a-54d7058cd67b) for Denmark.
+
 ## Scripts
 
 Breakdown of the scripts contained in this repo and what they were used for:

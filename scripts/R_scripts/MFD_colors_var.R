@@ -3,7 +3,7 @@ library(tidyverse)
 
 # setwd("mfd_diversity")
 
-metadata <- readxl::read_excel('../../data/2025-04-14_mfd_db.xlsx') %>%
+metadata <- readxl::read_excel('../data/2025-04-14_mfd_db.xlsx') %>%
   select(mfd_sampletype:mfd_hab1)
 
 sample.levels <- metadata %>%
@@ -34,34 +34,40 @@ mfdo1.levels <- metadata %>%
 rm(metadata)
 
 ## Ontology palettes
-other.palette <- colorRampPalette(c(wes_palette("Royal1")[1], wes_palette("FrenchDispatch")[3]))
-plot(rep(1, 5), col = other.palette(5), pch = 19, cex = 3)
+other.palette <- colorRampPalette(c(wes_palette("Royal1")[1], wes_palette("IsleofDogs2")[2]))
+plot(rep(1, 6), col = other.palette(6), pch = 19, cex = 3)
 
 sediment.palette <- colorRampPalette(c(wes_palette("IsleofDogs2")[3], wes_palette("FantasticFox1")[1]))
-plot(rep(1, 4), col = sediment.palette(4), pch = 19, cex = 3)
+plot(rep(1, 5), col = sediment.palette(5), pch = 19, cex = 3)
 
 soil.palette <- colorRampPalette(c(wes_palette("AsteroidCity1")[4], wes_palette("AsteroidCity1")[1]))
-plot(rep(1, 14), col = soil.palette(14), pch = 19, cex = 3)
+plot(rep(1, 15), col = soil.palette(16), pch = 19, cex = 3)
 
 water.palette <- colorRampPalette(c(wes_palette("Darjeeling2")[2], wes_palette("Zissou1")[2]))
-plot(rep(1, 5), col = water.palette(5), pch = 19, cex = 3)
+plot(rep(1, 6), col = water.palette(6), pch = 19, cex = 3)
+
+## Picking colors
+other.picks <- other.palette(6)
+sediment.picks <- sediment.palette(9)
+soil.picks <- soil.palette(21)
+water.picks <- water.palette(9)
 
 ## Sampletype palette
-sampletype.palette <- c(other.palette(1), sediment.palette(1), soil.palette(1), water.palette(1))
+sampletype.palette <- c(other.picks[1], sediment.picks[1], soil.picks[1], water.picks[1])
 names(sampletype.palette) <- sample.levels
 
 sampletype.palette
 plot(rep(1, 4), col = sampletype.palette, pch = 19, cex = 3)
 
 ## Areatype palette
-areatype.palette <- c(other.palette(1), sediment.palette(3), soil.palette(5), water.palette(3))
+areatype.palette <- c(other.picks[2], sediment.picks[2:4], soil.picks[2:6], water.picks[2:4])
 names(areatype.palette) <- area.levels
 
 areatype.palette
 plot(rep(1, 12), col = areatype.palette, pch = 19, cex = 3)
 
 # MFDO1 palette
-mfdo1.palette <- c(other.palette(5), sediment.palette(4), soil.palette(14), water.palette(5))
+mfdo1.palette <- c(other.picks[3:6], sediment.picks[5:9], soil.picks[7:21], water.picks[5:9])
 names(mfdo1.palette) <- mfdo1.levels
 
 mfdo1.palette
